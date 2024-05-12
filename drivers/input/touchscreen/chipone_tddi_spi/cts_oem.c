@@ -1160,7 +1160,11 @@ static int32_t selftest_proc_open(struct inode *inode, struct file *file)
     cts_info("Open '/proc/" OEM_SELFTEST_PROC_FILENAME "'");
 
     if (!oem_data->test_config_from_dt_has_parsed) {
+#ifndef CONFIG_CTS_I2C_HOST
+        ret = parse_selftest_dt(oem_data, cts_data->pdata->spi_client->dev.of_node);
+#else
         ret = parse_selftest_dt(oem_data, cts_data->device->of_node);
+#endif
         if (ret) {
             cts_err("Parse selftest dt failed %d", ret);
             return ret;

@@ -135,7 +135,11 @@ struct cts_platform_data {
     u8 fw_log_buf[CTS_FW_LOG_BUF_LEN];
 #endif
 
-
+#ifdef CONFIG_CTS_I2C_HOST
+    struct i2c_client *i2c_client;
+    u8 i2c_fifo_buf[CFG_CTS_MAX_I2C_XFER_SIZE];
+    u8 i2c_rbuf[ALIGN(CFG_CTS_MAX_I2C_READ_SIZE, 4)];
+#else
     struct spi_device *spi_client;
     u8 spi_cache_buf[ALIGN(CFG_CTS_MAX_SPI_XFER_SIZE + 10, 4)];
     u8 spi_rx_buf[ALIGN(CFG_CTS_MAX_SPI_XFER_SIZE + 10, 4)];
@@ -144,6 +148,16 @@ struct cts_platform_data {
 #endif
 };
 
+#ifdef CONFIG_CTS_I2C_HOST
+extern size_t cts_plat_get_max_i2c_xfer_size(struct cts_platform_data *pdata);
+extern u8 *cts_plat_get_i2c_xfer_buf(struct cts_platform_data *pdata,
+        size_t xfer_size);
+extern int cts_plat_i2c_write(struct cts_platform_data *pdata, u8 i2c_addr,
+        const void *src, size_t len, int retry, int delay);
+extern int cts_plat_i2c_read(struct cts_platform_data *pdata, u8 i2c_addr,
+        const u8 *wbuf, size_t wlen, void *rbuf,
+        size_t rlen, int retry, int delay);
+#else /* CONFIG_CTS_I2C_HOST */
 extern size_t cts_plat_get_max_spi_xfer_size(struct cts_platform_data *pdata);
 extern u8 *cts_plat_get_spi_xfer_buf(struct cts_platform_data *pdata,
         size_t xfer_size);
@@ -157,10 +171,15 @@ extern int cts_plat_spi_read_delay_idle(struct cts_platform_data *pdata,
         int retry, int delay, int idle);
 extern int cts_spi_send_recv(struct cts_platform_data *pdata, size_t len,
         u8 *tx_buffer, u8 *rx_buffer);
+#endif /* CONFIG_CTS_I2C_HOST */
 
+#ifdef CONFIG_CTS_I2C_HOST
+extern int cts_init_platform_data(struct cts_platform_data *pdata,
+        struct i2c_client *i2c_client);
+#else
 extern int cts_init_platform_data(struct cts_platform_data *pdata,
         struct spi_device *spi);
-
+#endif
 extern int cts_plat_is_normal_mode(struct cts_platform_data *pdata);
 
 extern int cts_deinit_platform_data(struct cts_platform_data *pdata);

@@ -469,7 +469,11 @@ struct chipone_ts_data {
 #endif
 // -P86801AA1 peiyuexiang.wt,add,20230801,add sec_tsp node
 
+#ifdef CONFIG_CTS_I2C_HOST
+    struct i2c_client *i2c_client;
+#else
     struct spi_device *spi_client;
+#endif
     struct device *device;
     struct cts_device cts_dev;
     struct cts_platform_data *pdata;
@@ -771,6 +775,21 @@ static inline int cts_sram_readsb(const struct cts_device *cts_dev,
     return cts_sram_readsb_retry(cts_dev, addr, dst, len, 1, 0);
 }
 
+#ifdef CONFIG_CTS_I2C_HOST
+static inline void cts_set_program_addr(struct cts_device *cts_dev)
+{
+    cts_dev->rtdata.slave_addr = CTS_DEV_PROGRAM_MODE_I2CADDR;
+    cts_dev->rtdata.program_mode = true;
+    cts_dev->rtdata.addr_width = CTS_DEV_PROGRAM_MODE_ADDR_WIDTH;
+}
+
+static inline void cts_set_normal_addr(struct cts_device *cts_dev)
+{
+    cts_dev->rtdata.slave_addr = CTS_DEV_NORMAL_MODE_I2CADDR;
+    cts_dev->rtdata.program_mode = false;
+    cts_dev->rtdata.addr_width = CTS_DEV_NORMAL_MODE_ADDR_WIDTH;
+}
+#else
 static inline void cts_set_program_addr(struct cts_device *cts_dev)
 {
     cts_dev->rtdata.slave_addr = CTS_DEV_PROGRAM_MODE_SPIADDR;
@@ -784,6 +803,7 @@ static inline void cts_set_normal_addr(struct cts_device *cts_dev)
     cts_dev->rtdata.program_mode = false;
     cts_dev->rtdata.addr_width = CTS_DEV_NORMAL_MODE_ADDR_WIDTH;
 }
+#endif
 
 extern int cts_irq_handler(struct cts_device *cts_dev);
 extern void cts_firmware_upgrade_work(struct work_struct *work);

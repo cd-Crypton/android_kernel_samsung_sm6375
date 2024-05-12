@@ -25,7 +25,14 @@
 /** Whether reset pin is used */
 #define CFG_CTS_HAS_RESET_PIN
 
+/* #define CONFIG_CTS_I2C_HOST */
+#ifndef CONFIG_CTS_I2C_HOST
+#ifndef CFG_CTS_HAS_RESET_PIN
+#define CFG_CTS_HAS_RESET_PIN
+#endif
+
 #define CFG_CTS_SPI_SPEED_KHZ               10000
+#endif /* CONFIG_CTS_I2C_HOST */
 
 /* #define CFG_CTS_FORCE_UP */
 /* #define CFG_CTS_HEARTBEAT_MECHANISM */

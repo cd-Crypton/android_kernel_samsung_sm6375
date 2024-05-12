@@ -16,6 +16,243 @@ extern char TP_name[HARDWARE_MAX_ITEM_LONGTH];
 extern char Lcm_name_tp[255];
 //-P86801AA1, peiyuexiang.wt, 20230625, add, hardware_info
 
+#ifdef CONFIG_CTS_I2C_HOST
+static int cts_i2c_writeb(const struct cts_device *cts_dev,
+        u32 addr, u8 b, int retry, int delay)
+{
+    u8 buff[8];
+
+    cts_dbg("Write to slave_addr: 0x%02x reg: 0x%0*x val: 0x%02x",
+        cts_dev->rtdata.slave_addr, cts_dev->rtdata.addr_width * 2,
+        addr, b);
+
+    if (cts_dev->rtdata.addr_width == 2)
+        put_unaligned_be16(addr, buff);
+    else if (cts_dev->rtdata.addr_width == 3)
+        put_unaligned_be24(addr, buff);
+    else {
+        cts_err("Writeb invalid address width %u", cts_dev->rtdata.addr_width);
+        return -EINVAL;
+    }
+    buff[cts_dev->rtdata.addr_width] = b;
+
+    return cts_plat_i2c_write(cts_dev->pdata, cts_dev->rtdata.slave_addr,
+            buff, cts_dev->rtdata.addr_width + 1, retry, delay);
+}
+
+static int cts_i2c_writew(const struct cts_device *cts_dev,
+        u32 addr, u16 w, int retry, int delay)
+{
+    u8 buff[8];
+
+    cts_dbg("Write to slave_addr: 0x%02x reg: 0x%0*x val: 0x%04x",
+        cts_dev->rtdata.slave_addr, cts_dev->rtdata.addr_width * 2,
+        addr, w);
+
+    if (cts_dev->rtdata.addr_width == 2)
+        put_unaligned_be16(addr, buff);
+    else if (cts_dev->rtdata.addr_width == 3)
+        put_unaligned_be24(addr, buff);
+    else {
+        cts_err("Writew invalid address width %u", cts_dev->rtdata.addr_width);
+        return -EINVAL;
+    }
+
+    put_unaligned_le16(w, buff + cts_dev->rtdata.addr_width);
+
+    return cts_plat_i2c_write(cts_dev->pdata, cts_dev->rtdata.slave_addr,
+            buff, cts_dev->rtdata.addr_width + 2, retry, delay);
+}
+
+static int cts_i2c_writel(const struct cts_device *cts_dev,
+        u32 addr, u32 l, int retry, int delay)
+{
+    u8 buff[8];
+
+    cts_dbg("Write to slave_addr: 0x%02x reg: 0x%0*x val: 0x%08x",
+        cts_dev->rtdata.slave_addr, cts_dev->rtdata.addr_width * 2,
+        addr, l);
+
+    if (cts_dev->rtdata.addr_width == 2)
+        put_unaligned_be16(addr, buff);
+    else if (cts_dev->rtdata.addr_width == 3)
+        put_unaligned_be24(addr, buff);
+    else {
+        cts_err("Writel invalid address width %u", cts_dev->rtdata.addr_width);
+        return -EINVAL;
+    }
+
+    put_unaligned_le32(l, buff + cts_dev->rtdata.addr_width);
+
+    return cts_plat_i2c_write(cts_dev->pdata, cts_dev->rtdata.slave_addr,
+            buff, cts_dev->rtdata.addr_width + 4, retry, delay);
+}
+
+static int cts_i2c_writesb(const struct cts_device *cts_dev, u32 addr,
+        const u8 *src, size_t len, int retry, int delay)
+{
+    int ret;
+    u8 *data;
+    size_t max_xfer_size;
+    size_t payload_len;
+    size_t xfer_len;
+
+    cts_dbg("Write to slave_addr: 0x%02x reg: 0x%0*x len: %zu",
+        cts_dev->rtdata.slave_addr, cts_dev->rtdata.addr_width * 2,
+        addr, len);
+
+    max_xfer_size = cts_plat_get_max_i2c_xfer_size(cts_dev->pdata);
+    data = cts_plat_get_i2c_xfer_buf(cts_dev->pdata, len);
+    while (len) {
+        payload_len =
+            min((size_t)(max_xfer_size - cts_dev->rtdata.addr_width), len);
+        xfer_len = payload_len + cts_dev->rtdata.addr_width;
+
+        if (cts_dev->rtdata.addr_width == 2)
+            put_unaligned_be16(addr, data);
+        else if (cts_dev->rtdata.addr_width == 3)
+            put_unaligned_be24(addr, data);
+        else {
+            cts_err("Writesb invalid address width %u",
+                cts_dev->rtdata.addr_width);
+            return -EINVAL;
+        }
+
+        memcpy(data + cts_dev->rtdata.addr_width, src, payload_len);
+
+        ret = cts_plat_i2c_write(cts_dev->pdata,
+                cts_dev->rtdata.slave_addr, data,
+                xfer_len, retry, delay);
+        if (ret) {
+            cts_err("Platform i2c write failed %d", ret);
+            return ret;
+        }
+
+        src += payload_len;
+        len -= payload_len;
+        addr += payload_len;
+    }
+
+    return 0;
+}
+
+static int cts_i2c_readb(const struct cts_device *cts_dev,
+        u32 addr, u8 *b, int retry, int delay)
+{
+    u8 addr_buf[4];
+
+    cts_dbg("Readb from slave_addr: 0x%02x reg: 0x%0*x",
+        cts_dev->rtdata.slave_addr, cts_dev->rtdata.addr_width * 2, addr);
+
+    if (cts_dev->rtdata.addr_width == 2)
+        put_unaligned_be16(addr, addr_buf);
+    else if (cts_dev->rtdata.addr_width == 3)
+        put_unaligned_be24(addr, addr_buf);
+    else {
+        cts_err("Readb invalid address width %u", cts_dev->rtdata.addr_width);
+        return -EINVAL;
+    }
+
+    return cts_plat_i2c_read(cts_dev->pdata, cts_dev->rtdata.slave_addr,
+            addr_buf, cts_dev->rtdata.addr_width, b, 1, retry, delay);
+}
+
+static int cts_i2c_readw(const struct cts_device *cts_dev,
+        u32 addr, u16 *w, int retry, int delay)
+{
+    int ret;
+    u8 addr_buf[4];
+    u8 buff[2];
+
+    cts_dbg("Readw from slave_addr: 0x%02x reg: 0x%0*x",
+        cts_dev->rtdata.slave_addr, cts_dev->rtdata.addr_width * 2, addr);
+
+    if (cts_dev->rtdata.addr_width == 2)
+        put_unaligned_be16(addr, addr_buf);
+    else if (cts_dev->rtdata.addr_width == 3)
+        put_unaligned_be24(addr, addr_buf);
+    else {
+        cts_err("Readw invalid address width %u", cts_dev->rtdata.addr_width);
+        return -EINVAL;
+    }
+
+    ret = cts_plat_i2c_read(cts_dev->pdata, cts_dev->rtdata.slave_addr,
+            addr_buf, cts_dev->rtdata.addr_width, buff, 2, retry, delay);
+    if (ret == 0)
+        *w = get_unaligned_le16(buff);
+
+    return ret;
+}
+
+static int cts_i2c_readl(const struct cts_device *cts_dev,
+        u32 addr, u32 *l, int retry, int delay)
+{
+    int ret;
+    u8 addr_buf[4];
+    u8 buff[4];
+
+    cts_dbg("Readl from slave_addr: 0x%02x reg: 0x%0*x",
+        cts_dev->rtdata.slave_addr, cts_dev->rtdata.addr_width * 2, addr);
+
+    if (cts_dev->rtdata.addr_width == 2)
+        put_unaligned_be16(addr, addr_buf);
+    else if (cts_dev->rtdata.addr_width == 3)
+        put_unaligned_be24(addr, addr_buf);
+    else {
+        cts_err("Readl invalid address width %u", cts_dev->rtdata.addr_width);
+        return -EINVAL;
+    }
+
+    ret = cts_plat_i2c_read(cts_dev->pdata, cts_dev->rtdata.slave_addr,
+            addr_buf, cts_dev->rtdata.addr_width, buff, 4, retry, delay);
+    if (ret == 0)
+        *l = get_unaligned_le32(buff);
+
+    return ret;
+}
+
+static int cts_i2c_readsb(const struct cts_device *cts_dev,
+        u32 addr, u8 *dst, size_t len, int retry, int delay)
+{
+    int ret;
+    u8 addr_buf[4];
+    size_t max_xfer_size, xfer_len;
+
+    cts_dbg("Readsb from slave_addr: 0x%02x reg: 0x%0*x len: %zu",
+        cts_dev->rtdata.slave_addr, cts_dev->rtdata.addr_width * 2,
+        addr, len);
+
+    max_xfer_size = cts_plat_get_max_i2c_xfer_size(cts_dev->pdata);
+    while (len) {
+        xfer_len = min(max_xfer_size, len);
+
+        if (cts_dev->rtdata.addr_width == 2)
+            put_unaligned_be16(addr, addr_buf);
+        else if (cts_dev->rtdata.addr_width == 3)
+            put_unaligned_be24(addr, addr_buf);
+        else {
+            cts_err("Readsb invalid address width %u",
+                cts_dev->rtdata.addr_width);
+            return -EINVAL;
+        }
+
+        ret = cts_plat_i2c_read(cts_dev->pdata,
+                cts_dev->rtdata.slave_addr, addr_buf,
+                cts_dev->rtdata.addr_width, dst,
+                xfer_len, retry, delay);
+        if (ret) {
+            cts_err("Platform i2c read failed %d", ret);
+            return ret;
+        }
+
+        dst += xfer_len;
+        len -= xfer_len;
+        addr += xfer_len;
+    }
+
+    return 0;
+}
+#else
 static int cts_spi_writeb(const struct cts_device *cts_dev,
         u32 addr, u8 b, int retry, int delay)
 {
@@ -260,59 +497,97 @@ static int cts_spi_readsb_delay_idle(const struct cts_device *cts_dev,
     return 0;
 }
 
+#endif /* CONFIG_CTS_I2C_HOST */
+
 int cts_dev_writeb(const struct cts_device *cts_dev,
         u32 addr, u8 b, int retry, int delay)
 {
+#ifdef CONFIG_CTS_I2C_HOST
+    return cts_i2c_writeb(cts_dev, addr, b, retry, delay);
+#else
     return cts_spi_writeb(cts_dev, addr, b, retry, delay);
+#endif
 }
 
 static inline int cts_dev_writew(const struct cts_device *cts_dev,
         u32 addr, u16 w, int retry, int delay)
 {
+#ifdef CONFIG_CTS_I2C_HOST
+    return cts_i2c_writew(cts_dev, addr, w, retry, delay);
+#else
     return cts_spi_writew(cts_dev, addr, w, retry, delay);
+#endif
 }
 
 static inline int cts_dev_writel(const struct cts_device *cts_dev,
         u32 addr, u32 l, int retry, int delay)
 {
+#ifdef CONFIG_CTS_I2C_HOST
+    return cts_i2c_writel(cts_dev, addr, l, retry, delay);
+#else
     return cts_spi_writel(cts_dev, addr, l, retry, delay);
+#endif
 }
 
 static inline int cts_dev_writesb(const struct cts_device *cts_dev, u32 addr,
         const u8 *src, size_t len, int retry, int delay)
 {
+#ifdef CONFIG_CTS_I2C_HOST
+    return cts_i2c_writesb(cts_dev, addr, src, len, retry, delay);
+#else
     return cts_spi_writesb(cts_dev, addr, src, len, retry, delay);
+#endif
 }
 
 int cts_dev_readb(const struct cts_device *cts_dev,
         u32 addr, u8 *b, int retry, int delay)
 {
+#ifdef CONFIG_CTS_I2C_HOST
+    return cts_i2c_readb(cts_dev, addr, b, retry, delay);
+#else
     return cts_spi_readb(cts_dev, addr, b, retry, delay);
+#endif
 }
 
 static inline int cts_dev_readw(const struct cts_device *cts_dev,
         u32 addr, u16 *w, int retry, int delay)
 {
+#ifdef CONFIG_CTS_I2C_HOST
+    return cts_i2c_readw(cts_dev, addr, w, retry, delay);
+#else
     return cts_spi_readw(cts_dev, addr, w, retry, delay);
+#endif
 }
 
 static inline int cts_dev_readl(const struct cts_device *cts_dev,
         u32 addr, u32 *l, int retry, int delay)
 {
+#ifdef CONFIG_CTS_I2C_HOST
+    return cts_i2c_readl(cts_dev, addr, l, retry, delay);
+#else
     return cts_spi_readl(cts_dev, addr, l, retry, delay);
+#endif
 }
 
 static inline int cts_dev_readsb(const struct cts_device *cts_dev,
         u32 addr, void *dst, size_t len, int retry, int delay)
 {
+#ifdef CONFIG_CTS_I2C_HOST
+    return cts_i2c_readsb(cts_dev, addr, dst, len, retry, delay);
+#else
     return cts_spi_readsb(cts_dev, addr, dst, len, retry, delay);
+#endif
 }
 
 static inline int cts_dev_readsb_delay_idle(const struct cts_device *cts_dev,
         u32 addr, void *dst, size_t len, int retry, int delay, int idle)
 {
+#ifdef CONFIG_CTS_I2C_HOST
+    return cts_i2c_readsb(cts_dev, addr, dst, len, retry, delay);
+#else
     return cts_spi_readsb_delay_idle(cts_dev, addr, dst, len, retry, delay,
             idle);
+#endif
 }
 
 #ifdef CFG_CTS_UPDATE_CRCCHECK
@@ -1541,6 +1816,21 @@ int cts_enter_program_mode(struct cts_device *cts_dev)
         /* return 0; */
     }
 
+#ifdef CONFIG_CTS_I2C_HOST
+    ret = cts_plat_i2c_write(cts_dev->pdata,
+            CTS_DEV_PROGRAM_MODE_I2CADDR, magic_num, 4, 5, 10);
+    if (ret) {
+        cts_err("Write magic number to i2c_dev: 0x%02x failed %d",
+            CTS_DEV_PROGRAM_MODE_I2CADDR, ret);
+        return ret;
+    }
+
+    cts_set_program_addr(cts_dev);
+    /* Write i2c deglitch register */
+    ret = cts_hw_reg_writeb_retry(cts_dev, CTS_DEV_HW_REG_I2C_CFG, 0x0F, 5, 1);
+    if (ret)
+        cts_err("Write i2c deglitch register failed\n");
+#else
     cts_set_program_addr(cts_dev);
     ret = cts_spi_send_recv(cts_dev->pdata, sizeof(magic_num), (u8 *)magic_num, NULL);
     if (ret) {
@@ -1548,6 +1838,7 @@ int cts_enter_program_mode(struct cts_device *cts_dev)
             CTS_DEV_PROGRAM_MODE_SPIADDR, ret);
         return ret;
     }
+#endif /* CONFIG_CTS_I2C_HOST */
 
     cts_dev->rtdata.program_mode = true;
     mdelay(5);
@@ -1563,12 +1854,17 @@ int cts_enter_program_mode(struct cts_device *cts_dev)
     }
     /* Note: the following CTS_DEV_BOOT_MODE_TCH_PRG_9916
     is used by both ICNL9916 and ICNL9916C */
+#ifdef CONFIG_CTS_I2C_HOST
+    if ((boot_mode == CTS_DEV_BOOT_MODE_TCH_PRG_9916) ||
+    (boot_mode == CTS_DEV_BOOT_MODE_I2C_PRG_9911C))
+#else
     if ((boot_mode == CTS_DEV_BOOT_MODE_TCH_PRG_9916) ||
     (boot_mode == CTS_DEV_BOOT_MODE_SPI_PRG_9911C))
+#endif
     {
         return 0;
     }
-    cts_err("BOOT_MODE readback %u != SPI PROMGRAM mode", boot_mode);
+    cts_err("BOOT_MODE readback %u != I2C/SPI PROMGRAM mode", boot_mode);
     return -EFAULT;
 }
 

@@ -1050,7 +1050,11 @@ int cts_update_firmware(struct cts_device *cts_dev,
     int ret, retries;
     bool enabled = cts_is_device_enabled(cts_dev);
 
+#ifdef CONFIG_CTS_I2C_HOST
+    to_flash = true;
+#else
     to_flash = false;
+#endif
 
     cts_info("Update firmware to %s ver: %04x size: %zu",
         to_flash ? "flash" : "sram",
