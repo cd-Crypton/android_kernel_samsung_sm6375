@@ -1488,36 +1488,6 @@ int cts_irq_handler(struct cts_device *cts_dev)
         return ret;
     }
 
-#if 0
-	cts_err("%30s = %02x", "vkey_state", touch_info->vkey_state);
-	cts_err("%30s = %04d", "num_msg", touch_info->num_msg);
-	cts_err("%30s = %02x", "proto_version", touch_info->proto_version);
-	cts_err("%30s = %02x", "has_stylus", touch_info->has_stylus);
-	cts_err("%30s = %02x", "reserved0", touch_info->reserved0);
-
-	for (i = 0; i < CFG_CTS_MAX_TOUCH_NUM; i++) {
-		struct cts_device_touch_msg *msg = &touch_info->msgs[i];
-		cts_err("%30s[%02d] = (%04d, %04d)", "num_msg", i,
-			msg->xl | (msg->xh << 8),
-			msg->yl | (msg->yh << 8));
-	}
-
-	cts_err("%30s = %02x", "proximity", touch_info->proximity);
-	cts_err("%30s = %02x", "palm_msg", touch_info->palm_msg);
-	cts_err("%30s = %02x", "packet_msg", touch_info->packet_msg);
-	cts_err("%30s = %02x", "reserved1", touch_info->reserved1);
-
-	cts_err("%30s = %02x", "stylus_num_msg", touch_info->stylus_num_msg);
-	cts_err("%30s = %02x", "stylus_version", touch_info->stylus_version);
-
-	for (i = 0; i < CFG_CTS_MAX_STYLUS_NUM; i++) {
-		struct cts_device_stylus_msg *msg = &touch_info->stylus_msgs[i];
-		cts_err("%30s[%02d] = (%04d, %04d)", "num_msg", i,
-			msg->tip_xl | (msg->tip_xh << 8),
-			msg->tip_yl | (msg->tip_yh << 8));
-	}
-#endif
-
     if (unlikely(cts_dev->rtdata.suspended)) {
 #ifdef CFG_CTS_GESTURE
         if (cts_dev->rtdata.gesture_wakeup_enabled) {
@@ -2268,9 +2238,40 @@ init_hwdata:
         return -ENODEV;
     }
 
-    cts_info("Touch info size:%zu", sizeof(struct cts_device_touch_info));
+#if 0
+#ifdef CFG_CTS_FIRMWARE_FORCE_UPDATE
+	cts_warn("Force update firmware");
+	firmware = cts_request_firmware(cts_dev,
+		CTS_DEV_HWID_ANY, CTS_DEV_FWID_ANY, 0);
+#else /* CFG_CTS_FIRMWARE_FORCE_UPDATE */
+	firmware = cts_request_firmware(cts_dev, hwid, fwid, device_fw_ver);
+#endif /* CFG_CTS_FIRMWARE_FORCE_UPDATE */
 
-    return ret;
+	retries = 0;
+update_firmware:
+	if (firmware) {
+		++retries;
+		ret = cts_update_firmware(cts_dev, firmware, true);
+		if (ret) {
+			cts_err("Update firmware failed %d retries %d", ret,
+				retries);
+
+			if (retries < 3) {
+				cts_plat_reset_device(cts_dev->pdata);
+				goto update_firmware;
+			}
+		}
+		cts_release_firmware(firmware);
+	} else {
+		if (fwid != CTS_DEV_FWID_INVALID) {
+			ret = cts_init_fwdata(cts_dev);
+			if (ret) {
+				cts_err("Device init firmware data failed %d", ret);
+			}
+		}
+	}
+#endif
+	return 0;
 }
 
 #ifdef CFG_CTS_GESTURE
@@ -2320,30 +2321,6 @@ int cts_get_gesture_info(struct cts_device *cts_dev, void *gesture_info)
 
     return 0;
 }
-#if 0
-bool cts_is_d_tap_supported(struct cts_device *cts_dev)
-{
-	return true;
-}
-
-int cts_set_d_tap_enabled(struct cts_device *cts_dev, bool enabled)
-{
-	cts_dev->rtdata.gesture_d_tap_enabled = enabled;
-	return 0;
-}
-#endif
-#else
-#if 0
-bool cts_is_d_tap_supported(struct cts_device *cts_dev)
-{
-	return false;
-}
-
-int cts_set_d_tap_enabled(struct cts_device *cts_dev, bool enabled)
-{
-	return 0;
-}
-#endif
 #endif /* CFG_CTS_GESTURE */
 
 int cts_set_int_data_types(struct cts_device *cts_dev, u16 types)
