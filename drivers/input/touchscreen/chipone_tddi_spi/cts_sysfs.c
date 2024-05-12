@@ -1840,7 +1840,6 @@ static DEVICE_ATTR(fw_log_redirect, S_IRUSR | S_IWUSR, fw_log_redirect_show,
         fw_log_redirect_store);
 #endif
 
-#ifndef CONFIG_CTS_I2C_HOST
 static ssize_t debug_spi_show(struct device *dev,
         struct device_attribute *attr, char *buf)
 {
@@ -1879,7 +1878,6 @@ static ssize_t debug_spi_store(struct device *dev,
 
 static DEVICE_ATTR(debug_spi, S_IRUSR | S_IWUSR, debug_spi_show,
         debug_spi_store);
-#endif
 
 #ifdef CFG_CTS_GESTURE
 static ssize_t gesture_en_show(struct device *dev,
@@ -2577,9 +2575,7 @@ static struct attribute *cts_dev_misc_atts[] = {
     &dev_attr_write_tcs_reg.attr,
     &dev_attr_read_hw_reg.attr,
     &dev_attr_write_hw_reg.attr,
-#ifndef CONFIG_CTS_I2C_HOST
     &dev_attr_debug_spi.attr,
-#endif
 #ifdef CFG_CTS_GESTURE
     &dev_attr_gesture_en.attr,
 #endif /* CFG_CTS_GESTURE */
@@ -2670,11 +2666,7 @@ static ssize_t path_show(struct device *dev,
         cts_err("Read 'path' with chipone_ts_data NULL");
         return (ssize_t) 0;
     }
-#ifdef CONFIG_CTS_I2C_HOST
-    path = kobject_get_path(&data->i2c_client->dev.kobj, GFP_KERNEL);
-#else
     path = kobject_get_path(&data->spi_client->dev.kobj, GFP_KERNEL);
-#endif
     blen = scnprintf(buf, PAGE_SIZE, "%s", path ? path : "na");
     kfree(path);
     return blen;

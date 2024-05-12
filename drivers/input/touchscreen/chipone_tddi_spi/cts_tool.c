@@ -100,9 +100,6 @@ struct cts_test_ioctl_data {
 static struct cts_tool_cmd cts_tool_cmd;
 static char cts_tool_firmware_filepath[PATH_MAX];
 /* If CFG_CTS_MAX_I2C_XFER_SIZE < 58(PC tool length), this is neccessary */
-#ifdef CONFIG_CTS_I2C_HOST
-static u32 cts_tool_direct_access_addr = 0;
-#endif /* CONFIG_CTS_I2C_HOST */
 
 static int cts_tool_open(struct inode *inode, struct file *file)
 {
@@ -244,56 +241,6 @@ static ssize_t cts_tool_read(struct file *file,
         cts_info("Get IC type");
         break;
 
-#ifdef CONFIG_CTS_I2C_HOST
-    case CTS_TOOL_CMD_I2C_DIRECT_READ:
-        {
-            u32 addr_width;
-            char *wr_buff = NULL;
-            u8 addr_buff[4];
-            size_t left_size, max_xfer_size;
-            u8 *data;
-
-            if (cmd->addr[0] != CTS_DEV_PROGRAM_MODE_I2CADDR) {
-                cmd->addr[0] = CTS_DEV_NORMAL_MODE_I2CADDR;
-                addr_width = 2;
-            } else {
-                addr_width =
-                    cts_dev->hwdata->program_addr_width;
-            }
-
-            cts_dbg("Direct read from i2c_addr 0x%02x addr 0x%06x size %u",
-                    cmd->addr[0], cts_tool_direct_access_addr, cmd->data_len);
-
-            left_size = cmd->data_len;
-            max_xfer_size = cts_plat_get_max_i2c_xfer_size(cts_dev->pdata);
-            data = cmd->data;
-            while (left_size) {
-                size_t xfer_size = min(left_size, max_xfer_size);
-                ret = cts_plat_i2c_read(cts_data->pdata, cmd->addr[0], wr_buff,
-                        addr_width, data, xfer_size, 1, 0);
-                if (ret) {
-                    cts_err("Direct read i2c_addr 0x%02x addr 0x%06x "
-                            "len %zu failed %d", cmd->addr[0],
-                            cts_tool_direct_access_addr,
-                            xfer_size, ret);
-                    break;
-                }
-
-                left_size -= xfer_size;
-                if (left_size) {
-                    data += xfer_size;
-                    cts_tool_direct_access_addr += xfer_size;
-                    if (addr_width == 2) {
-                        put_unaligned_be16(cts_tool_direct_access_addr, addr_buff);
-                    } else if (addr_width == 3) {
-                        put_unaligned_be24(cts_tool_direct_access_addr, addr_buff);
-                    }
-                    wr_buff = addr_buff;
-                }
-            }
-        }
-        break;
-#endif
     case CTS_TOOL_CMD_GET_DRIVER_INFO:
         break;
 
@@ -492,66 +439,6 @@ static ssize_t cts_tool_write(struct file *file,
 
         break;
 
-#ifdef CONFIG_CTS_I2C_HOST
-    case CTS_TOOL_CMD_I2C_DIRECT_WRITE:
-        {
-            u32 addr_width;
-            size_t left_payload_size;    /* Payload exclude address field */
-            size_t max_xfer_size;
-            char *payload;
-
-            if (cmd->addr[0] != CTS_DEV_PROGRAM_MODE_I2CADDR) {
-                cmd->addr[0] = CTS_DEV_NORMAL_MODE_I2CADDR;
-                addr_width = 2;
-                cts_tool_direct_access_addr = get_unaligned_be16(cmd->data);
-            } else {
-                addr_width = cts_dev->hwdata->program_addr_width;
-                cts_tool_direct_access_addr = get_unaligned_be24(cmd->data);
-            }
-
-            if (cmd->data_len < addr_width) {
-                cts_err("Direct write too short %d < address width %d",
-                        cmd->data_len, addr_width);
-                ret = -EINVAL;
-                break;
-            }
-
-            cts_dbg("Direct write to i2c_addr 0x%02x addr 0x%06x size %u",
-                    cmd->addr[0], cts_tool_direct_access_addr, cmd->data_len);
-
-            left_payload_size = cmd->data_len - addr_width;
-            max_xfer_size = cts_plat_get_max_i2c_xfer_size(cts_dev->pdata);
-            payload = cmd->data + addr_width;
-            do {
-                size_t xfer_payload_size = min(left_payload_size,
-                        max_xfer_size - addr_width);
-                size_t xfer_len = xfer_payload_size + addr_width;
-
-                ret = cts_plat_i2c_write(cts_data->pdata,
-                        cmd->addr[0], payload - addr_width, xfer_len, 1, 0);
-                if (ret) {
-                    cts_err("Direct write i2c_addr 0x%02x addr 0x%06x len %zu failed %d",
-                            cmd->addr[0], cts_tool_direct_access_addr,
-                            xfer_len, ret);
-                    break;
-                }
-
-                left_payload_size -= xfer_payload_size;
-                if (left_payload_size) {
-                    payload += xfer_payload_size;
-                    cts_tool_direct_access_addr += xfer_payload_size;
-                    if (addr_width == 2) {
-                        put_unaligned_be16(cts_tool_direct_access_addr,
-                                payload - addr_width);
-                    } else if (addr_width == 3) {
-                        put_unaligned_be24(cts_tool_direct_access_addr,
-                                payload - addr_width);
-                    }
-                }
-            } while (left_payload_size);
-        }
-        break;
-#endif
     default:
         cts_warn("Write unknown command %u", cmd->cmd);
         ret = -EINVAL;

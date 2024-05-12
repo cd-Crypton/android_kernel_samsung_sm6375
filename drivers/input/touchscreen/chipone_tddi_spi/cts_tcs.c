@@ -24,21 +24,6 @@
 
 
 #pragma pack(1)
-#ifdef CONFIG_CTS_I2C_HOST
-typedef struct {
-    u16 cmd;
-    u16 datlen;
-    u8 check_l;
-    u8 check_h;
-} tcs_tx_head;
-
-typedef struct {
-    u8 ecode;
-    u16 cmd;
-    u8 check_l;
-    u8 check_h;
-} tcs_rx_tail;
-#else /* CONFIG_CTS_I2C_HOST */
 typedef struct {
     u8 addr;
     u16 cmd;
@@ -50,7 +35,7 @@ typedef struct {
     u16 cmd;
     u16 crc16;
 } tcs_rx_tail;
-#endif /* CONFIG_CTS_I2C_HOST */
+
 #pragma pack()
 
 
@@ -139,132 +124,6 @@ void dump_spi(const char *prefix, u8 *data, size_t datalen)
 }
 #endif
 
-#ifdef CONFIG_CTS_I2C_HOST
-static int cts_tcs_i2c_read_pack(u8 *tx, u16 cmd, u16 rdatalen)
-{
-    tcs_tx_head *txhdr = (tcs_tx_head *) tx;
-    u16 is_read;
-    int packlen = 0;
-
-    is_read = cmd & BIT(TCS_READ_BIT);
-    if (0 == is_read) {
-        return packlen;
-    }
-    txhdr->cmd = (cmd & ~BIT(TCS_WRITE_BIT));
-    txhdr->datlen = rdatalen;
-    txhdr->check_l = ~((txhdr->cmd & 0xff)
-            + ((txhdr->cmd >> 8) & 0xff)
-            + (rdatalen & 0xff)
-            + ((rdatalen >> 8) & 0xff));
-    txhdr->check_h = 1;
-    packlen += sizeof(tcs_tx_head);
-
-    return packlen;
-}
-
-static int cts_tcs_i2c_write_pack(u8 *tx, u16 cmd, u8 *wdata, u16 wlen)
-{
-    tcs_tx_head *txhdr = (tcs_tx_head *) tx;
-    int packlen = 0;
-    u8 check_l = 0;
-    u16 is_write;
-    int i;
-
-    is_write = cmd & BIT(TCS_WRITE_BIT);
-    if (0 == is_write) {
-        return packlen;
-    }
-    txhdr->cmd = (cmd & ~BIT(TCS_READ_BIT));
-    txhdr->datlen = wlen;
-    txhdr->check_l = ~((txhdr->cmd & 0xff)
-            + ((txhdr->cmd >> 8) & 0xff)
-            + (wlen & 0xff)
-            + ((wlen >> 8) & 0xff));
-    txhdr->check_h = 1;
-    packlen += sizeof(tcs_tx_head);
-
-    if (wlen > 0) {
-        memcpy(tx + sizeof(tcs_tx_head), wdata, wlen);
-        for (i = 0; i < wlen; i++)
-            check_l += wdata[i];
-        *(tx + sizeof(tcs_tx_head) + wlen) = ~check_l;
-        *(tx + sizeof(tcs_tx_head) + wlen + 1) = 1;
-        packlen += wlen + 2;
-    }
-
-    return packlen;
-}
-
-static int cts_tcs_i2c_read(const struct cts_device *cts_dev, u16 cmd,
-        u8 *buf, size_t len)
-{
-    int txlen;
-    int size;
-    u16 cmd_recv;
-    u16 cmd_send;
-    u8 error_code;
-    int ret;
-
-    size = len + sizeof(tcs_rx_tail);
-
-    txlen = cts_tcs_i2c_read_pack(cts_dev->pdata->i2c_fifo_buf, cmd, len);
-
-    ret = cts_plat_i2c_read(cts_dev->pdata, CTS_DEV_NORMAL_MODE_I2CADDR,
-        cts_dev->pdata->i2c_fifo_buf, txlen, cts_dev->pdata->i2c_rbuf, size,
-        3, 10);
-
-    if (ret == 0) {
-        error_code = *(cts_dev->pdata->i2c_rbuf + size - 5);
-        cmd_send = get_unaligned_le16(cts_dev->pdata->i2c_fifo_buf);
-        cmd_recv = get_unaligned_le16(cts_dev->pdata->i2c_rbuf + size - 4);
-        if (error_code != 0) {
-            cts_err("error code:0x%02x, send %04x, %04x recv", error_code,
-                    cmd_send, cmd_recv);
-            return -EIO;
-        }
-        memcpy(buf, cts_dev->pdata->i2c_rbuf, len);
-    }
-
-    return ret;
-}
-
-static int cts_tcs_i2c_write(const struct cts_device *cts_dev,
-        u16 cmd, u8 *wbuf, size_t wlen)
-{
-    int txlen;
-
-    txlen = cts_tcs_i2c_write_pack(cts_dev->pdata->i2c_fifo_buf, cmd, wbuf, wlen);
-
-    return cts_plat_i2c_write(cts_dev->pdata, CTS_DEV_NORMAL_MODE_I2CADDR,
-        cts_dev->pdata->i2c_fifo_buf, txlen, 3, 10);
-}
-
-static int cts_tcs_i2c_read_touch(const struct cts_device *cts_dev,
-        u16 cmd, u8 *buf, size_t len)
-{
-    u16 cmd_recv;
-    u16 cmd_send;
-    u8 error_code;
-    int txlen;
-    int ret;
-
-    txlen = cts_tcs_i2c_read_pack(cts_dev->pdata->i2c_fifo_buf,
-            cmd, len - sizeof(tcs_rx_tail));
-    ret = cts_plat_i2c_read(cts_dev->pdata, CTS_DEV_NORMAL_MODE_I2CADDR,
-        cts_dev->pdata->i2c_fifo_buf, txlen, cts_dev->pdata->i2c_rbuf, len, 3, 10);
-    if (ret == 0) {
-        error_code = *(cts_dev->pdata->i2c_rbuf + len - 5);
-        cmd_send = get_unaligned_le16(cts_dev->pdata->i2c_fifo_buf);
-        cmd_recv = get_unaligned_le16(buf + len - 4);
-        if (error_code != 0) {
-            cts_err("error code:0x%02x");
-            return -EIO;
-        }
-        memcpy(buf, cts_dev->pdata->i2c_rbuf, len - sizeof(tcs_rx_tail));
-    }
-    return ret;
-}
-#else
 static int cts_tcs_spi_xtrans(const struct cts_device *cts_dev, u8 *tx,
         size_t txlen, u8 *rx, size_t rxlen)
 {
@@ -499,36 +358,22 @@ static int cts_tcs_spi_write(const struct cts_device *cts_dev,
             cts_dev->pdata->spi_rx_buf, sizeof(tcs_rx_tail));
     return ret;
 }
-#endif
 
 int cts_tcs_tool_xtrans(const struct cts_device *cts_dev, u8 *tx, size_t txlen,
         u8 *rx, size_t rxlen)
 {
-#ifdef CONFIG_CTS_I2C_HOST
-    cts_err("Not implement!!!");
-    return 0;
-#else
     return cts_tcs_spi_xtrans(cts_dev, tx, txlen, rx, rxlen);
-#endif
 }
 
 int cts_tcs_read(const struct cts_device *cts_dev,
         u16 cmd, u8 *buf, size_t len)
 {
-#ifdef CONFIG_CTS_I2C_HOST
-    return cts_tcs_i2c_read(cts_dev, cmd, buf, len);
-#else
     return cts_tcs_spi_read(cts_dev, cmd, buf, len);
-#endif
 }
 int cts_tcs_write(const struct cts_device *cts_dev,
         u16 cmd, u8 *buf, size_t len)
 {
-#ifdef CONFIG_CTS_I2C_HOST
-    return cts_tcs_i2c_write(cts_dev, cmd, buf, len);
-#else
     return cts_tcs_spi_write(cts_dev, cmd, buf, len);
-#endif
 }
 
 int cts_tcs_get_fw_ver(const struct cts_device *cts_dev, u16 *fwver)
@@ -975,13 +820,8 @@ int cts_tcs_polling_data(struct cts_device *cts_dev,
 
     retries = 3;
     do {
-#ifdef CONFIG_CTS_I2C_HOST
-        ret = cts_tcs_i2c_read_touch(cts_dev, CMD_GET_DATA_BY_POLLING_RO,
-            cts_dev->int_data, data_size);
-#else
         ret = cts_tcs_spi_read_1_cs(cts_dev, CMD_GET_DATA_BY_POLLING_RO,
             cts_dev->int_data, data_size);
-#endif
         mdelay(1);
     } while (ret && --retries);
 
@@ -1163,13 +1003,9 @@ int cts_tcs_get_gestureinfo(struct cts_device *cts_dev,
     size_t size = sizeof(*gesture_info) + TCS_REPLY_TAIL_SIZ;
     int ret;
 
-#ifdef CONFIG_CTS_I2C_HOST
-    ret = cts_tcs_i2c_read_touch(cts_dev, CMD_TP_DATA_COORDINATES_RO,
-            cts_dev->int_data, size);
-#else
     ret = cts_tcs_spi_read_1_cs(cts_dev, CMD_TP_DATA_COORDINATES_RO,
             cts_dev->int_data, size);
-#endif
+
     if (cts_tcs_clr_gstr_ready_flag(cts_dev)) {
         cts_err("Clear gesture ready flag failed");
     }
@@ -1195,21 +1031,13 @@ int cts_tcs_get_touchinfo(struct cts_device *cts_dev,
 
     memset(touch_info, 0, sizeof(*touch_info));
 
-#ifdef CONFIG_CTS_I2C_HOST
-    ret = cts_tcs_i2c_read_touch(cts_dev, CMD_TP_DATA_COORDINATES_RO,
-            cts_dev->int_data, size);
-    if (unlikely(ret != 0)) {
-        cts_err("cts_tcs_i2c_read_touch failed");
-        return ret;
-    }
-#else
     ret = cts_tcs_spi_read_1_cs(cts_dev, CMD_TP_DATA_COORDINATES_RO,
             cts_dev->int_data, size);
     if (unlikely(ret != 0)) {
         cts_err("tcs_spi_read_1_cs failed");
         return ret;
     }
-#endif
+    
     memcpy(touch_info, cts_dev->int_data, sizeof(*touch_info));
 
 #ifdef CFG_CTS_HEARTBEAT_MECHANISM

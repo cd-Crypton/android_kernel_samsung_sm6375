@@ -26,85 +26,6 @@ size_t cts_plat_get_max_i2c_xfer_size(struct cts_platform_data *pdata)
     return CFG_CTS_MAX_I2C_XFER_SIZE;
 }
 
-#ifdef CONFIG_CTS_I2C_HOST
-u8 *cts_plat_get_i2c_xfer_buf(struct cts_platform_data *pdata, size_t xfer_size)
-{
-    return pdata->i2c_fifo_buf;
-}
-
-int cts_plat_i2c_write(struct cts_platform_data *pdata, u8 i2c_addr,
-        const void *src, size_t len, int retry, int delay)
-{
-    int ret = 0, retries = 0;
-
-    struct i2c_msg msg = {
-        .flags = 0,
-        .addr = i2c_addr,
-        .buf = (u8 *) src,
-        .len = len,
-    };
-
-    do {
-        ret = i2c_transfer(pdata->i2c_client->adapter, &msg, 1);
-        if (ret != 1) {
-            if (ret >= 0)
-                ret = -EIO;
-
-            if (delay)
-                mdelay(delay);
-            continue;
-        } else
-            return 0;
-    } while (++retries < retry);
-
-    return ret;
-}
-
-int cts_plat_i2c_read(struct cts_platform_data *pdata, u8 i2c_addr,
-        const u8 *wbuf, size_t wlen, void *rbuf, size_t rlen,
-        int retry, int delay)
-{
-    int num_msg, ret = 0, retries = 0;
-
-    struct i2c_msg msgs[2] = {
-        {
-            .addr = i2c_addr,
-            .flags = 0,
-            .buf = (u8 *) wbuf,
-            .len = wlen
-        },
-        {
-            .addr = i2c_addr,
-            .flags = I2C_M_RD,
-            .buf = (u8 *) rbuf,
-            .len = rlen
-        }
-    };
-
-    if (wbuf == NULL || wlen == 0)
-        num_msg = 1;
-    else
-        num_msg = 2;
-
-    do {
-        ret = i2c_transfer(pdata->i2c_client->adapter,
-                msgs + ARRAY_SIZE(msgs) - num_msg, num_msg);
-
-        if (ret != num_msg) {
-            if (ret >= 0)
-                ret = -EIO;
-
-            if (delay)
-                mdelay(delay);
-            continue;
-        } else
-            return 0;
-    } while (++retries < retry);
-
-    return ret;
-}
-#else
-#if 0
 static u8 str[1024 * 8];
 void dump_spi_common(const char *prefix, u8 *data, size_t datalen)
 {
@@ -121,7 +42,7 @@ void dump_spi_common(const char *prefix, u8 *data, size_t datalen)
     }
     cts_err("%s", str);
 }
-#endif
+
 #ifdef CFG_CTS_MANUAL_CS
 int cts_plat_set_cs(struct cts_platform_data *pdata, int val)
 {
@@ -644,7 +565,6 @@ static void cts_plat_touch_event_timeout_work(struct work_struct *work)
 }
 #endif
 
-#ifndef CONFIG_CTS_I2C_HOST
 int cts_plat_spi_setup(struct cts_platform_data *pdata)
 {
     int ret;
@@ -662,15 +582,9 @@ int cts_plat_spi_setup(struct cts_platform_data *pdata)
         cts_err("spi_setup err!");
     return 0;
 }
-#endif
 
-#ifdef CONFIG_CTS_I2C_HOST
-int cts_init_platform_data(struct cts_platform_data *pdata,
-        struct i2c_client *i2c_client)
-#else
 int cts_init_platform_data(struct cts_platform_data *pdata,
         struct spi_device *spi)
-#endif
 {
     struct input_dev *input_dev;
     int ret = 0;
@@ -681,11 +595,7 @@ int cts_init_platform_data(struct cts_platform_data *pdata,
     {
         struct device *dev;
 
-#ifdef CONFIG_CTS_I2C_HOST
-        dev = &i2c_client->dev;
-#else
         dev = &spi->dev;
-#endif /* CONFIG_CTS_I2C_HOST */
         ret = cts_plat_parse_dt(pdata, dev->of_node);
         if (ret) {
             cts_err("Parse dt failed %d", ret);
@@ -694,13 +604,8 @@ int cts_init_platform_data(struct cts_platform_data *pdata,
     }
 #endif /* CONFIG_CTS_OF */
 
-#ifdef CONFIG_CTS_I2C_HOST
-    pdata->i2c_client = i2c_client;
-    pdata->i2c_client->irq = pdata->irq;
-#else
     pdata->spi_client = spi;
     pdata->spi_client->irq = pdata->irq;
-#endif /* CONFIG_CTS_I2C_HOST */
 
     mutex_init(&pdata->dev_lock);
     spin_lock_init(&pdata->irq_lock);
@@ -714,13 +619,8 @@ int cts_init_platform_data(struct cts_platform_data *pdata,
     /** - Init input device */
     input_dev->name = CFG_CTS_DEVICE_NAME;
     input_dev->name = CFG_CTS_DEVICE_NAME;
-#ifdef CONFIG_CTS_I2C_HOST
-    input_dev->id.bustype = BUS_I2C;
-    input_dev->dev.parent = &pdata->i2c_client->dev;
-#else
     input_dev->id.bustype = BUS_SPI;
     input_dev->dev.parent = &pdata->spi_client->dev;
-#endif /* CONFIG_CTS_I2C_HOST */
     input_dev->evbit[0] = BIT_MASK(EV_SYN) | BIT_MASK(EV_KEY) | BIT_MASK(EV_ABS);
 #ifdef CFG_CTS_PALM_DETECT
     set_bit(CFG_CTS_PALM_EVENT, input_dev->keybit);
@@ -784,10 +684,8 @@ int cts_init_platform_data(struct cts_platform_data *pdata,
             cts_plat_touch_event_timeout_work);
 #endif
 
-#ifndef CONFIG_CTS_I2C_HOST
     pdata->spi_speed = CFG_CTS_SPI_SPEED_KHZ;
     cts_plat_spi_setup(pdata);
-#endif
     return 0;
 }
 

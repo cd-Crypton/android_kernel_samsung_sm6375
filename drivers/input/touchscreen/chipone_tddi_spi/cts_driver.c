@@ -1,8 +1,4 @@
-#ifdef    CONFIG_CTS_I2C_HOST
-#define LOG_TAG         "I2CDrv"
-#else
 #define LOG_TAG         "SPIDrv"
-#endif
 
 #include "cts_config.h"
 #include "cts_platform.h"
@@ -605,14 +601,7 @@ static int chipone_charger_notifier_callback_init(struct chipone_ts_data *ts_dat
 //-P86801AA1,peiyuexiang.wt,modify,20230807,add tp charger_mode
 
 
-
-
-#ifdef CONFIG_CTS_I2C_HOST
-static int cts_driver_probe(struct i2c_client *client,
-        const struct i2c_device_id *id)
-#else
 static int cts_driver_probe(struct spi_device *client)
-#endif
 {
     struct chipone_ts_data *cts_data = NULL;
     int ret = 0;
@@ -657,24 +646,6 @@ static int cts_driver_probe(struct spi_device *client)
 #endif
 //#endif
 
-#ifdef CONFIG_CTS_I2C_HOST
-    cts_info("Probe i2c client: name='%s' addr=0x%02x flags=0x%02x irq=%d",
-        client->name, client->addr, client->flags, client->irq);
-
-#if !defined(CONFIG_MTK_PLATFORM)
-    if (client->addr != CTS_DEV_NORMAL_MODE_I2CADDR) {
-        cts_err("Probe i2c addr 0x%02x != driver config addr 0x%02x",
-            client->addr, CTS_DEV_NORMAL_MODE_I2CADDR);
-        return -ENODEV;
-    };
-#endif
-
-    if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
-        cts_err("Check functionality failed");
-        return -ENODEV;
-    }
-#endif
-
     cts_data = kzalloc(sizeof(struct chipone_ts_data), GFP_KERNEL);
     if (cts_data == NULL) {
         cts_err("Allocate chipone_ts_data failed");
@@ -686,15 +657,9 @@ static int cts_driver_probe(struct spi_device *client)
         ret = -ENOMEM;
         goto err_free_cts_data;
     }
-#ifdef CONFIG_CTS_I2C_HOST
-    i2c_set_clientdata(client, cts_data);
-    cts_data->i2c_client = client;
-    cts_data->device = &client->dev;
-#else
     spi_set_drvdata(client, cts_data);
     cts_data->spi_client = client;
     cts_data->device = &client->dev;
-#endif
 
     cts_init_platform_data(cts_data->pdata, client);
 
@@ -923,22 +888,14 @@ err_free_cts_data:
     return ret;
 }
 
-#ifdef CONFIG_CTS_I2C_HOST
-static int cts_driver_remove(struct i2c_client *client)
-#else
 static int cts_driver_remove(struct spi_device *client)
-#endif
 {
     struct chipone_ts_data *cts_data;
     int ret = 0;
 
     cts_info("Remove");
 
-#ifdef CONFIG_CTS_I2C_HOST
-    cts_data = (struct chipone_ts_data *)i2c_get_clientdata(client);
-#else
     cts_data = (struct chipone_ts_data *)spi_get_drvdata(client);
-#endif
     if (cts_data) {
         ret = cts_stop_device(&cts_data->cts_dev);
         if (ret)
@@ -1239,13 +1196,8 @@ static DRIVER_ATTR_RO(slot_protocol);
 
 static ssize_t max_xfer_size_show(struct device_driver *dev, char *buf)
 {
-#ifdef CONFIG_CTS_I2C_HOST
-    return snprintf(buf, PAGE_SIZE, "CFG_CTS_MAX_I2C_XFER_SIZE: %d\n",
-            CFG_CTS_MAX_I2C_XFER_SIZE);
-#else
     return snprintf(buf, PAGE_SIZE, "CFG_CTS_MAX_SPI_XFER_SIZE: %d\n",
             CFG_CTS_MAX_SPI_XFER_SIZE);
-#endif
 }
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
@@ -1302,23 +1254,12 @@ static const struct of_device_id cts_i2c_of_match_table[] = {
 MODULE_DEVICE_TABLE(of, cts_i2c_of_match_table);
 #endif /* CONFIG_CTS_OF */
 
-#ifdef CONFIG_CTS_I2C_HOST
-static const struct i2c_device_id cts_device_id_table[] = {
-    { CFG_CTS_DEVICE_NAME, 0 },
-    { }
-};
-#else
 static const struct spi_device_id cts_device_id_table[] = {
     { CFG_CTS_DEVICE_NAME, 0 },
     { }
 };
-#endif
 
-#ifdef CONFIG_CTS_I2C_HOST
-static struct i2c_driver cts_i2c_driver = {
-#else
 static struct spi_driver cts_spi_driver = {
-#endif
     .probe = cts_driver_probe,
     .remove = cts_driver_remove,
     .driver = {
@@ -1351,24 +1292,15 @@ static int __init cts_driver_init(void)
 {
     cts_info("Chipone touch driver init, version: "CFG_CTS_DRIVER_VERSION);
 
-#ifdef CONFIG_CTS_I2C_HOST
-    cts_info(" - Register i2c driver");
-    return i2c_add_driver(&cts_i2c_driver);
-#else
     cts_info(" - Register spi driver");
     return spi_register_driver(&cts_spi_driver);
-#endif
 }
 
 static void __exit cts_driver_exit(void)
 {
     cts_info("Exit");
 
-#ifdef CONFIG_CTS_I2C_HOST
-    i2c_del_driver(&cts_i2c_driver);
-#else
     spi_unregister_driver(&cts_spi_driver);
-#endif
 }
 
 late_initcall(cts_driver_init);
